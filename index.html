@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speedaf Mini Tracker – Admin & Customer Portal</title>
+
+<!-- Firebase compat scripts -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+/* Reset & Base */
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Roboto', sans-serif; }
+body { background: #f5f7fa; color: #333; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 30px; }
+h1 { color: #ff6600; margin-bottom: 20px; }
+
+/* Cards */
+.card { background: #fff; padding: 30px 25px; margin: 20px 0; width: 100%; max-width: 450px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); transition: transform 0.2s; }
+.card:hover { transform: translateY(-3px); }
+
+/* Headings */
+.card h3 { margin-bottom: 15px; color: #333; }
+
+/* Inputs & Buttons */
+input { width: 100%; padding: 12px 15px; margin: 10px 0; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
+input:focus { outline: none; border-color: #ff6600; box-shadow: 0 0 5px rgba(255,102,0,0.3); }
+
+button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: none; background: #ff6600; color: #fff; font-weight: 600; font-size: 15px; cursor: pointer; transition: background 0.2s; }
+button:hover { background: #e65c00; }
+
+/* Status badges */
+.status { padding: 6px 10px; border-radius: 6px; color: #fff; font-weight: 500; font-size: 13px; display: inline-block; margin-bottom: 10px; }
+.Pending { background: #f0ad4e; }
+.Transit { background: #0275d8; }
+.Delivered { background: #5cb85c; }
+
+/* Results */
+p { white-space: pre-line; font-weight: 500; font-size: 14px; color: #555; }
+
+/* Footer */
+footer { margin-top: 40px; font-size: 13px; color: #888; }
+</style>
+</head>
+
+<body>
+
+<h1>🚚 Speedaf Shipment Tracker</h1>
+
+<!-- Admin Card -->
+<div class="card">
+<h3>Admin Portal – Create Shipment</h3>
+<input id="pin" type="password" placeholder="Admin PIN">
+<input id="sender" placeholder="Sender Name">
+<input id="receiver" placeholder="Receiver Name">
+<input id="address" placeholder="Delivery Address">
+<button onclick="createShipment()">Generate Tracking ID</button>
+<p id="createResult"></p>
+</div>
+
+<!-- Customer Tracking Card -->
+<div class="card">
+<h3>Track Your Shipment</h3>
+<input id="trackID" placeholder="Enter Tracking ID">
+<button onclick="track()">Track Shipment</button>
+<p id="trackResult"></p>
+</div>
+
+<footer>© 2026 Speedaf Logistics. All rights reserved.</footer>
+
+<script>
+// 🔥 FIREBASE CONFIG
+const firebaseConfig = {
+  apiKey: "AIzaSyAo3R9QLJuFGfg34F9yn20RqrGheolFCNQ",
+  authDomain: "speedaf-tracker.firebaseapp.com",
+  projectId: "speedaf-tracker",
+  storageBucket: "speedaf-tracker.firebasestorage.app",
+  messagingSenderId: "412506320580",
+  appId: "1:412506320580:web:43085e79c8abe4d2bc6391"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// 🔐 Admin PIN
+const ADMIN_PIN = "0814";
+
+// Generate Tracking ID
+function generateID(){
+  const d = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  return "SPEEDAF-" + d + "-" + Math.floor(1000 + Math.random()*9000);
+}
+
+// Create shipment
+function createShipment(){
+  if(pin.value !== ADMIN_PIN){
+    alert("❌ Wrong admin PIN");
+    return;
+  }
+
+  const id = generateID();
+  const now = Date.now();
+  const inTransitDelay = 12 * 60 * 60 * 1000; 
+  const deliveryDelay = (4 * 24 * 60 * 60 * 1000) + Math.random() * (24 * 60 * 60 * 1000);
+
+  const shipment = {
+    sender: sender.value,
+    receiver: receiver.value,
+    address: address.value,
+    createdAt: now,
+    inTransitAt: now + inTransitDelay,
+    deliveredAt: now + deliveryDelay,
+    scans: [
+      { time: now, text: "Shipment received at Speedaf origin facility" },
+      { time: now + inTransitDelay, text: "Departed Speedaf sorting hub" },
+      { time: now + deliveryDelay, text: "Delivered to destination by Speedaf" }
+    ]
+  };
+
+  db.collection("shipments").doc(id).set(shipment);
+  createResult.innerText = "✅ Tracking ID:\n" + id;
+
+  sender.value = "";
+  receiver.value = "";
+  address.value = "";
+  pin.value = "";
+}
+
+// Get status
+function getStatus(s){
+  const now = Date.now();
+  if(now >= s.deliveredAt) return "Delivered";
+  if(now >= s.inTransitAt) return "Transit";
+  return "Pending";
+}
+
+// Track shipment
+function track(){
+  const id = trackID.value.trim();
+  db.collection("shipments").doc(id).get().then(doc=>{
+    if(!doc.exists){
+      trackResult.innerText = "❌ Shipment not found";
+      return;
+    }
+
+    const s = doc.data();
+    const status = getStatus(s);
+    const eta = new Date(s.deliveredAt).toLocaleString();
+
+    let history = "";
+    s.scans.forEach(scan=>{
+      if(Date.now() >= scan.time){
+        history += "• " + scan.text + "\n";
+      }
+    });
+
+    trackResult.innerHTML =
+      `Status: <span class="status ${status}">${status}</span>\n\n` +
+      `Sender: ${s.sender}\nReceiver: ${s.receiver}\nAddress: ${s.address}\n\n` +
+      `Estimated Delivery:\n${eta}\n\n` +
+      `Tracking History:\n${history}`;
+  });
+}
+</script>
+
+</body>
+</html>
